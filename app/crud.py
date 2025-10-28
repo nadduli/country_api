@@ -3,7 +3,6 @@ from sqlalchemy import func, desc, asc
 from typing import Optional, List
 from datetime import datetime
 from app import models, utils
-import random
 import os
 
 
@@ -18,17 +17,17 @@ def list_countries(
     sort: Optional[str] = None
 ) -> List[models.Country]:
     q = db.query(models.Country)
-    
+
     if region:
         q = q.filter(models.Country.region == region)
     if currency:
         q = q.filter(models.Country.currency_code == currency)
-    
+
     if sort == "gdp_desc":
-        q = q.order_by(desc(models.Country.estimated_gdp))
+        q = q.order_by(models.Country.estimated_gdp.desc().nullslast())
     elif sort == "gdp_asc":
-        q = q.order_by(asc(models.Country.estimated_gdp))
-    
+        q = q.order_by(models.Country.estimated_gdp.asc().nullslast())
+
     return q.all()
 
 
@@ -41,9 +40,12 @@ def delete_country(db: Session, name: str) -> bool:
     return True
 
 
-def upsert_country(db: Session, data: dict, last_refreshed_at: datetime):
+def upsert_country(db: Session, data: dict, last_refreshed_at: datetime, commit: bool = True):
+    """
+    Insert or update a country in DB.
+    Computes estimated_gdp using helper utils.
+    """
     existing = get_country_by_name(db, data["name"])
-    
     exchange_rate = data.get("exchange_rate")
     estimated_gdp = utils.compute_estimated_gdp(data["population"], exchange_rate)
 
@@ -70,11 +72,16 @@ def upsert_country(db: Session, data: dict, last_refreshed_at: datetime):
             last_refreshed_at=last_refreshed_at
         )
         db.add(new_country)
-    db.commit()
 
-def refresh_countries(db: Session):
+    if commit:
+        db.commit()
+
+
+def refresh_countries(db: Session) -> datetime:
     """
-    Fetches countries and exchange rates, updates DB in batch.
+    Fetch countries and exchange rates from external APIs.
+    Update DB in batch for efficiency.
+    Returns last_refreshed_at timestamp.
     """
     countries_data = utils.fetch_countries()
     exchange_rates = utils.fetch_exchange_rates()
@@ -85,7 +92,7 @@ def refresh_countries(db: Session):
         if country.get("currencies"):
             currency_code = country["currencies"][0].get("code")
         exchange_rate = exchange_rates.get(currency_code) if currency_code else None
-        
+
         upsert_country(
             db,
             {
@@ -95,18 +102,20 @@ def refresh_countries(db: Session):
                 "population": country.get("population"),
                 "currency_code": currency_code,
                 "exchange_rate": exchange_rate,
-                "estimated_gdp": None,
                 "flag_url": country.get("flag"),
             },
-            last_refreshed_at
+            last_refreshed_at,
+            commit=False
         )
 
+    db.commit()
     return last_refreshed_at
 
 
-def generate_summary(db: Session, output_path: str = "cache/summary.png"):
+def generate_summary(db: Session, output_path: str = "cache/summary.png") -> str:
     """
-    Generates summary image using helper file.
+    Generate summary image using helper utils.
+    Returns path to the image.
     """
     last_refresh = db.query(func.max(models.Country.last_refreshed_at)).scalar() or datetime.utcnow()
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
