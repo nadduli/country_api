@@ -24,7 +24,7 @@ class CountryOut(BaseModel):
     last_refreshed_at: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class StatusOut(BaseModel):
     total_countries: int
