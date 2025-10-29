@@ -24,7 +24,7 @@ async function refreshCountries(req, res) {
   // STEP 1: Fetch countries data
     let countriesResponse;
     try {
-      countriesResponse = await axios.get(COUNTRIES_API, { timeout: 15000 });
+      countriesResponse = await axios.get(COUNTRIES_API, { timeout: 30000 });
     } catch (err) {
       console.error(' Countries API failed:', err.code || err.message);
       throw new Error(`Failed to fetch from ${COUNTRIES_API}`);
