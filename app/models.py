@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func
+from sqlalchemy import Column, Integer, Float, DateTime, func
 from sqlalchemy.dialects.mysql import VARCHAR
 from app.database import Base
 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 class CountryBase(BaseModel):
@@ -29,3 +29,7 @@ class CountryOut(BaseModel):
 class StatusOut(BaseModel):
     total_countries: int
     last_refreshed_at: Optional[datetime]
+
+class ErrorResponse(BaseModel):
+    error: str
+    message: str

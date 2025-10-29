@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, asc
+from sqlalchemy import func, case, text
 from typing import Optional, List
 from datetime import datetime
 from app import models, utils
@@ -23,10 +23,27 @@ def list_countries(
     if currency:
         q = q.filter(models.Country.currency_code == currency)
 
+    # Handle sorting with MySQL-compatible NULL handling
     if sort == "gdp_desc":
-        q = q.order_by(models.Country.estimated_gdp.desc().nullslast())
+        # For descending: NULL values come last by using a case statement
+        q = q.order_by(
+            case((models.Country.estimated_gdp.is_(None), 1), else_=0),
+            models.Country.estimated_gdp.desc()
+        )
     elif sort == "gdp_asc":
-        q = q.order_by(models.Country.estimated_gdp.asc().nullslast())
+        # For ascending: NULL values come last by using a case statement
+        q = q.order_by(
+            case((models.Country.estimated_gdp.is_(None), 1), else_=0),
+            models.Country.estimated_gdp.asc()
+        )
+    elif sort == "name_asc":
+        q = q.order_by(models.Country.name.asc())
+    elif sort == "name_desc":
+        q = q.order_by(models.Country.name.desc())
+    elif sort == "population_asc":
+        q = q.order_by(models.Country.population.asc())
+    elif sort == "population_desc":
+        q = q.order_by(models.Country.population.desc())
 
     return q.all()
 
@@ -80,36 +97,45 @@ def upsert_country(db: Session, data: dict, last_refreshed_at: datetime, commit:
 def refresh_countries(db: Session) -> datetime:
     """
     Fetch countries and exchange rates from external APIs.
-    Update DB in batch for efficiency.
+    Update DB in batches for better performance.
     Returns last_refreshed_at timestamp.
     """
-    countries_data = utils.fetch_countries()
-    exchange_rates = utils.fetch_exchange_rates()
-    last_refreshed_at = datetime.utcnow()
+    try:
+        countries_data = utils.fetch_countries()
+        exchange_rates = utils.fetch_exchange_rates()
+        last_refreshed_at = datetime.utcnow()
 
-    for country in countries_data:
-        currency_code = None
-        if country.get("currencies"):
-            currency_code = country["currencies"][0].get("code")
-        exchange_rate = exchange_rates.get(currency_code) if currency_code else None
+        batch_size = 50
+        for i in range(0, len(countries_data), batch_size):
+            batch = countries_data[i:i + batch_size]
+            for country in batch:
+                currency_code = None
+                if country.get("currencies"):
+                    currency_code = country["currencies"][0].get("code")
+                exchange_rate = exchange_rates.get(currency_code) if currency_code else None
 
-        upsert_country(
-            db,
-            {
-                "name": country["name"],
-                "capital": country.get("capital"),
-                "region": country.get("region"),
-                "population": country.get("population"),
-                "currency_code": currency_code,
-                "exchange_rate": exchange_rate,
-                "flag_url": country.get("flag"),
-            },
-            last_refreshed_at,
-            commit=False
-        )
+                upsert_country(
+                    db,
+                    {
+                        "name": country["name"],
+                        "capital": country.get("capital"),
+                        "region": country.get("region"),
+                        "population": country.get("population", 0),
+                        "currency_code": currency_code,
+                        "exchange_rate": exchange_rate,
+                        "flag_url": country.get("flag"),
+                    },
+                    last_refreshed_at,
+                    commit=False
+                )
+            
+            db.commit()
 
-    db.commit()
-    return last_refreshed_at
+        return last_refreshed_at
+        
+    except Exception as e:
+        db.rollback()
+        raise e
 
 
 def generate_summary(db: Session, output_path: str = "cache/summary.png") -> str:

@@ -1,14 +1,14 @@
 import httpx
 import random
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 import os
 
 COUNTRIES_API = "https://restcountries.com/v2/all?fields=name,capital,region,population,flag,currencies"
 EXCHANGE_API = "https://open.er-api.com/v6/latest/USD"
 
-DEFAULT_TIMEOUT = 10
+DEFAULT_TIMEOUT = 30
 
 def fetch_countries(timeout=DEFAULT_TIMEOUT) -> List[dict]:
     with httpx.Client(timeout=timeout) as client:
@@ -27,15 +27,19 @@ def fetch_exchange_rates(timeout=DEFAULT_TIMEOUT) -> Dict[str, float]:
 def compute_estimated_gdp(population: int, exchange_rate: Optional[float]) -> Optional[float]:
     """
     estimated_gdp = population * rand(1000-2000) / exchange_rate
-    If exchange_rate is None -> None (or 0 if spec says 0 for missing currency)
-    Spec: If currencies empty -> estimated_gdp = 0
-          If currency not found in rates -> estimated_gdp = null
-    We'll let caller decide based on currency existence.
+    If exchange_rate is None or 0 -> None
     """
     if exchange_rate is None or exchange_rate == 0:
         return None
-    multiplier = random.uniform(1000, 2000)
-    return population * multiplier / float(exchange_rate)
+    
+    if population is None or population < 0:
+        return None
+        
+    try:
+        multiplier = random.uniform(1000, 2000)
+        return population * multiplier / float(exchange_rate)
+    except (ValueError, ZeroDivisionError):
+        return None
 
 def generate_summary_image(db, out_path: str, last_refreshed_at: datetime):
     """
