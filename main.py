@@ -10,12 +10,11 @@ from app.database import get_db, engine
 from app import models, schemas, crud
 from app.utils import generate_summary_image
 
-# Create database tables
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Countries API", version="1.0.0")
 
-# Custom exception handlers
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
     return JSONResponse(
@@ -54,7 +53,6 @@ async def refresh_countries(db: Session = Depends(get_db)):
     try:
         last_refreshed_at = crud.refresh_countries(db)
         
-        # Generate summary image after refresh
         stats = crud.get_country_stats(db)
         image_generated = generate_summary_image(stats, "cache/summary.png")
         
@@ -130,24 +128,13 @@ async def get_countries_image():
     """
     image_path = "cache/summary.png"
     
-    # Debug information
-    print(f"DEBUG: Current working directory: {os.getcwd()}")
-    print(f"DEBUG: Looking for image at: {os.path.abspath(image_path)}")
-    print(f"DEBUG: File exists: {os.path.exists(image_path)}")
-    
     if os.path.exists(image_path):
-        file_size = os.path.getsize(image_path)
-        print(f"DEBUG: File size: {file_size} bytes")
-        
-        # Return the image file directly
         return FileResponse(
             image_path,
             media_type="image/png",
             filename="countries_summary.png"
         )
     else:
-        print(f"DEBUG: Image file not found at: {image_path}")
-        # Check if cache directory exists
         if os.path.exists("cache"):
             print(f"DEBUG: Cache directory exists. Contents: {os.listdir('cache')}")
         else:
