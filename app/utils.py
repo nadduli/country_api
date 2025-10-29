@@ -27,7 +27,6 @@ def fetch_exchange_rates(timeout=DEFAULT_TIMEOUT) -> Dict[str, float]:
 def compute_estimated_gdp(population: int, exchange_rate: Optional[float]) -> Optional[float]:
     """
     estimated_gdp = population * rand(1000-2000) / exchange_rate
-    If exchange_rate is None or 0 -> None
     """
     if exchange_rate is None or exchange_rate == 0:
         return None
@@ -41,44 +40,54 @@ def compute_estimated_gdp(population: int, exchange_rate: Optional[float]) -> Op
     except (ValueError, ZeroDivisionError):
         return None
 
-def generate_summary_image(db, out_path: str, last_refreshed_at: datetime):
+def generate_summary_image(stats: dict, output_path: str = "cache/summary.png"):
     """
-    db: SQLAlchemy session
-    out_path: path to save file (e.g. cache/summary.png)
+    Generate summary image and save to cache/summary.png
     """
-    from app import models
-    total = db.query(models.Country).count()
-    top5 = db.query(models.Country).filter(models.Country.estimated_gdp != None).order_by(models.Country.estimated_gdp.desc()).limit(5).all()
-
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
-    W, H = 1000, 600
-    background = (255, 255, 255)
-    img = Image.new("RGB", (W, H), color=background)
-    draw = ImageDraw.Draw(img)
-
     try:
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-        font_small = ImageFont.truetype("DejaVuSans.ttf", 18)
-    except:
-        font_title = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-
-    title = "Countries summary"
-    draw.text((20, 20), title, font=font_title, fill=(0, 0, 0))
-    draw.text((20, 60), f"Total countries: {total}", font=font_small, fill=(0, 0, 0))
-    draw.text((20, 90), f"Last refreshed: {last_refreshed_at.astimezone(timezone.utc).isoformat()}", font=font_small, fill=(0, 0, 0))
-
-    y = 140
-    draw.text((20, y-20), "Top 5 countries by estimated GDP:", font=font_small, fill=(0,0,0))
-    if top5:
-        for c in top5:
-            name = c.name
-            gdp = f"{c.estimated_gdp:,.2f}" if c.estimated_gdp else "N/A"
-            draw.text((30, y), f"{name} — {gdp}", font=font_small, fill=(0,0,0))
-            y += 28
-    else:
-        draw.text((30, y), "No GDP data available", font=font_small, fill=(0,0,0))
-
-    img.save(out_path)
-    return out_path
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        img = Image.new('RGB', (800, 400), color='white')
+        draw = ImageDraw.Draw(img)
+        
+        try:
+            font_large = ImageFont.truetype("arial.ttf", 24)
+            font_medium = ImageFont.truetype("arial.ttf", 18)
+            font_small = ImageFont.truetype("arial.ttf", 14)
+        except:
+            font_large = ImageFont.load_default()
+            font_medium = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+        
+        draw.text((20, 20), "Countries Summary", fill='black', font=font_large)
+        
+        draw.text((20, 60), f"Total Countries: {stats['total_countries']}", fill='black', font=font_medium)
+        
+        last_refresh = stats['last_refresh']
+        if last_refresh:
+            if last_refresh.tzinfo is None:
+                last_refresh = last_refresh.replace(tzinfo=timezone.utc)
+            refresh_str = last_refresh.strftime("%Y-%m-%d %H:%M:%S UTC")
+        else:
+            refresh_str = "Never"
+        draw.text((20, 90), f"Last Refreshed: {refresh_str}", fill='black', font=font_medium)
+        
+        draw.text((20, 130), "Top 5 Countries by Estimated GDP:", fill='black', font=font_medium)
+        
+        y_pos = 160
+        top5 = stats['top5_countries']
+        if top5:
+            for i, country in enumerate(top5, 1):
+                gdp_str = f"${country.estimated_gdp:,.2f}" if country.estimated_gdp else "N/A"
+                text = f"{i}. {country.name}: {gdp_str}"
+                draw.text((30, y_pos), text, fill='black', font=font_small)
+                y_pos += 25
+        else:
+            draw.text((30, y_pos), "No GDP data available", fill='black', font=font_small)
+        
+        img.save(output_path)
+        return True
+        
+    except Exception as e:
+        print(f"Error generating summary image: {e}")
+        return False

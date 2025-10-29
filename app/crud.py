@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, text
+from sqlalchemy import func, case
 from typing import Optional, List
 from datetime import datetime
 from app import models, utils
@@ -23,15 +23,12 @@ def list_countries(
     if currency:
         q = q.filter(models.Country.currency_code == currency)
 
-    # Handle sorting with MySQL-compatible NULL handling
     if sort == "gdp_desc":
-        # For descending: NULL values come last by using a case statement
         q = q.order_by(
             case((models.Country.estimated_gdp.is_(None), 1), else_=0),
             models.Country.estimated_gdp.desc()
         )
     elif sort == "gdp_asc":
-        # For ascending: NULL values come last by using a case statement
         q = q.order_by(
             case((models.Country.estimated_gdp.is_(None), 1), else_=0),
             models.Country.estimated_gdp.asc()
@@ -64,7 +61,13 @@ def upsert_country(db: Session, data: dict, last_refreshed_at: datetime, commit:
     """
     existing = get_country_by_name(db, data["name"])
     exchange_rate = data.get("exchange_rate")
-    estimated_gdp = utils.compute_estimated_gdp(data["population"], exchange_rate)
+    
+    if data.get("currency_code") is None:
+        estimated_gdp = 0
+    elif exchange_rate is None:
+        estimated_gdp = None
+    else:
+        estimated_gdp = utils.compute_estimated_gdp(data["population"], exchange_rate)
 
     if existing:
         existing.capital = data.get("capital")
@@ -138,12 +141,21 @@ def refresh_countries(db: Session) -> datetime:
         raise e
 
 
-def generate_summary(db: Session, output_path: str = "cache/summary.png") -> str:
+def get_country_stats(db: Session):
     """
-    Generate summary image using helper utils.
-    Returns path to the image.
+    Get statistics for image generation
     """
-    last_refresh = db.query(func.max(models.Country.last_refreshed_at)).scalar() or datetime.utcnow()
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    utils.generate_summary_image(db, output_path, last_refresh)
-    return output_path
+    total_countries = db.query(models.Country).count()
+    top5_countries = db.query(models.Country).filter(
+        models.Country.estimated_gdp.isnot(None)
+    ).order_by(
+        models.Country.estimated_gdp.desc()
+    ).limit(5).all()
+    
+    last_refresh = db.query(func.max(models.Country.last_refreshed_at)).scalar()
+    
+    return {
+        "total_countries": total_countries,
+        "top5_countries": top5_countries,
+        "last_refresh": last_refresh
+    }

@@ -8,12 +8,14 @@ import os
 
 from app.database import get_db, engine
 from app import models, schemas, crud
+from app.utils import generate_summary_image
 
-
+# Create database tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Countries API", version="1.0.0")
 
+# Custom exception handlers
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
     return JSONResponse(
@@ -47,10 +49,18 @@ async def general_exception_handler(request, exc):
 @app.post("/countries/refresh", status_code=200)
 async def refresh_countries(db: Session = Depends(get_db)):
     """
-    Refresh countries data from external APIs
+    Refresh countries data from external APIs and generate summary image
     """
     try:
         last_refreshed_at = crud.refresh_countries(db)
+        
+        # Generate summary image after refresh
+        stats = crud.get_country_stats(db)
+        image_generated = generate_summary_image(stats, "cache/summary.png")
+        
+        if not image_generated:
+            print("Warning: Could not generate summary image")
+        
         return {
             "message": "Countries data refreshed successfully",
             "last_refreshed_at": last_refreshed_at
@@ -71,14 +81,8 @@ async def get_countries(
     """
     Get all countries with optional filtering and sorting
     """
-    try:
-        countries = crud.list_countries(db, region=region, currency=currency, sort=sort)
-        return countries
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve countries: {str(e)}"
-        )
+    countries = crud.list_countries(db, region=region, currency=currency, sort=sort)
+    return countries
 
 @app.get("/countries/{name}", response_model=schemas.CountryOut)
 async def get_country(name: str, db: Session = Depends(get_db)):
@@ -119,29 +123,39 @@ async def get_status(db: Session = Depends(get_db)):
         "last_refreshed_at": last_refreshed_at[0] if last_refreshed_at else None
     }
 
-@app.get("/countries/image", response_class=FileResponse)
-async def get_countries_image(db: Session = Depends(get_db)):
+@app.get("/countries/image")
+async def get_countries_image():
     """
-    Generate and return the countries summary image
+    Serve the generated summary image
     """
-    try:
-        os.makedirs("cache", exist_ok=True)
+    image_path = "cache/summary.png"
+    
+    # Debug information
+    print(f"DEBUG: Current working directory: {os.getcwd()}")
+    print(f"DEBUG: Looking for image at: {os.path.abspath(image_path)}")
+    print(f"DEBUG: File exists: {os.path.exists(image_path)}")
+    
+    if os.path.exists(image_path):
+        file_size = os.path.getsize(image_path)
+        print(f"DEBUG: File size: {file_size} bytes")
         
-        image_path = crud.generate_summary(db, "cache/summary.png")
-        
-        if not os.path.exists(image_path):
-            raise HTTPException(status_code=404, detail="Image not found")
-            
+        # Return the image file directly
         return FileResponse(
             image_path,
             media_type="image/png",
             filename="countries_summary.png"
         )
+    else:
+        print(f"DEBUG: Image file not found at: {image_path}")
+        # Check if cache directory exists
+        if os.path.exists("cache"):
+            print(f"DEBUG: Cache directory exists. Contents: {os.listdir('cache')}")
+        else:
+            print("DEBUG: Cache directory does not exist")
         
-    except Exception as e:
         raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to generate image: {str(e)}"
+            status_code=404,
+            detail="Summary image not found. Please call /countries/refresh first."
         )
 
 @app.get("/")
